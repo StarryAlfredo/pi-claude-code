@@ -9,8 +9,13 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerAskUser } from "../src/tools/ask-user.js";
 
 export default function toolsExtension(pi: ExtensionAPI) {
+  // ── 已实现 ──────────────────────────────────────────
+  registerAskUser(pi)
+
+  // ── 待实现 ──────────────────────────────────────────
   // TODO: 注册 WebFetch 工具
   // import { registerWebFetch } from '../src/tools/web-fetch'
   // registerWebFetch(pi)
@@ -30,10 +35,6 @@ export default function toolsExtension(pi: ExtensionAPI) {
   // TODO: 注册 Plan Mode 工具（enter_plan_mode / exit_plan_mode）
   // import { registerPlanMode } from '../src/tools/plan-mode'
   // registerPlanMode(pi)
-
-  // TODO: 注册 AskUser 工具
-  // import { registerAskUser } from '../src/tools/ask-user'
-  // registerAskUser(pi)
 
   // TODO: 注册 NotebookEdit 工具
   // import { registerNotebookEdit } from '../src/tools/notebook-edit'
