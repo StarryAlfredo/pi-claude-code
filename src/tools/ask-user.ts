@@ -101,9 +101,7 @@ const QuestionSchema = Type.Object({
 		description:
 			'Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".',
 	}),
-	options: Type.Array(QuestionOptionSchema, { minItems: 2, maxItems: 4 }).description(
-		"The available choices for this question. Must have 2-4 options. There should be no 'Other' option, that will be provided automatically.",
-	),
+	options: Type.Array(QuestionOptionSchema, { minItems: 2, maxItems: 4, description: "The available choices for this question. Must have 2-4 options. There should be no 'Other' option, that will be provided automatically." }),
 	multiSelect: Type.Boolean({
 		default: false,
 		description:
@@ -112,9 +110,7 @@ const QuestionSchema = Type.Object({
 })
 
 const AskUserParams = Type.Object({
-	questions: Type.Array(QuestionSchema, { minItems: 1, maxItems: 4 }).description(
-		"Questions to ask the user (1-4 questions)",
-	),
+	questions: Type.Array(QuestionSchema, { minItems: 1, maxItems: 4, description: "Questions to ask the user (1-4 questions)" }),
 })
 
 // ─── 输出类型 ───────────────────────────────────────────────────
@@ -276,11 +272,16 @@ export function registerAskUser(pi: ExtensionAPI): void {
 
 					if (choice === "Other (type your own answer)") {
 						const customText = await ctx.ui.input("Enter your answer:", "")
-						answer = customText?.trim() || "No answer provided"
-						// 记录用户笔记
-						if (customText?.trim()) {
-							annotations[q.question] = { notes: customText.trim() }
+						// 用户按 Escape 取消 input 或输入为空 → 视为取消整次提问
+						if (customText === undefined || customText.trim() === "") {
+							return {
+								content: [{ type: "text" as const, text: "User declined to answer questions." }],
+								details: { questions, answers } as AskUserDetails,
+								isError: true,
+							}
 						}
+						answer = customText.trim()
+						annotations[q.question] = { notes: customText.trim() }
 					} else {
 						// 从 "label — description" 格式中提取 label
 						answer = choice.split(" — ")[0] || choice

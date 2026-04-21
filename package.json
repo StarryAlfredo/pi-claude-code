@@ -5,7 +5,12 @@
   "keywords": ["pi-package"],
   "main": "extensions/core.ts",
   "pi": {
-    "extensions": ["./extensions/*.ts"],
+    "extensions": [
+      "./extensions/core.ts",
+      "./extensions/tools.ts",
+      "./extensions/agents.ts",
+      "./extensions/mcp.ts"
+    ],
     "skills": ["./skills"],
     "prompts": ["./prompts"]
   },

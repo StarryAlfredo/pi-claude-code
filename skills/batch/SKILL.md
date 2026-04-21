@@ -1,3 +1,8 @@
+---
+name: batch
+description: Orchestrate large, parallelizable changes across the codebase by spawning multiple agents in isolated git worktrees.
+---
+
 # Batch Skill
 
 Orchestrate large, parallelizable changes across the codebase.

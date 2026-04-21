@@ -1,3 +1,8 @@
+---
+name: debug
+description: Interactive debugging assistance — reads errors, identifies relevant code, and suggests debugging strategies.
+---
+
 # Debug Skill
 
 Interactive debugging assistance with breakpoints and inspection.

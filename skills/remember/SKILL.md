@@ -1,3 +1,8 @@
+---
+name: remember
+description: Save important facts to memory files (PI.md) so they persist across sessions.
+---
+
 # Remember Skill
 
 Save important facts to memory files for future sessions.
