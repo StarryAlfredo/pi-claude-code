@@ -1,0 +1,32 @@
+{
+  "name": "pi-claude-code",
+  "version": "0.1.0",
+  "description": "Claude Code compatibility layer for Pi — brings Claude Code's tools, multi-agent collaboration, permission system, memory, MCP, and more to Pi via extensions",
+  "keywords": ["pi-package"],
+  "main": "extensions/core.ts",
+  "pi": {
+    "extensions": ["./extensions/*.ts"],
+    "skills": ["./skills"],
+    "prompts": ["./prompts"]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-agent-core": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Alfredo/pi-claude-code.git"
+  }
+}
