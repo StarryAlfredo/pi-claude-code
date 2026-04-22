@@ -63,11 +63,6 @@ pi-claude-code/
 │   └── types/               ← 共享类型
 │       └── index.ts             PermissionMode, SharedState, etc.
 │
-├── skills/                  ← Pi 技能（SKILL.md）
-│   ├── batch/                  批量并行工作编排
-│   ├── remember/               记忆保存
-│   └── debug/                  调试辅助
-│
 ├── prompts/                 ← Pi 提示模板
 │   └── claude-code-system.md   Claude Code 兼容系统提示
 │
@@ -193,7 +188,7 @@ pi -e D:/dev/pi-claude-code
 | System Prompt | before_agent_start 事件 |
 | 扩展系统 | pi.registerTool() / pi.on() / pi.registerCommand() |
 | 主题 | themes 系统 |
-| 技能 | skills 系统 (SKILL.md) |
+| 技能 | skills 系统 (SKILL.md) — 待实现 |
 | Prompt 模板 | prompts 系统 |
 
 ---
