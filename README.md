@@ -10,100 +10,83 @@
 
 ```
 pi-claude-code/
-├── extensions/              ← Pi 自动发现的扩展入口（4 个独立扩展）
-│   ├── core.ts              ← pi-cc-core:  权限 + 记忆 + Hooks + 命令（基础设施层）
-│   ├── tools.ts             ← pi-cc-tools:  Web/LSP/Todo/Plan/AskUser/Notebook/Worktree
-│   ├── agents.ts            ← pi-cc-agents: Agent/Task/Team/Coordinator/Batch
-│   └── mcp.ts               ← pi-cc-mcp:   MCP 客户端（动态工具注册）
+├── extensions/              ← Pi 自动发现的扩展入口（4 个可独立安装的扩展）
+│   ├── core.ts              ← 权限拦截 + 记忆注入 + Hooks + 命令
+│   ├── tools.ts             ← Web/LSP/Todo/Plan/AskUser/Notebook/Worktree
+│   ├── agents.ts            ← Agent/Task/Team/Coordinator/Batch
+│   └── mcp.ts               ← MCP 客户端（动态工具注册）
 │
 ├── src/                     ← 共享源码（被 extensions/ 引用）
-│   ├── permissions/         ← 权限系统
-│   │   ├── classifier.ts       Bash 命令安全分类（read/write/dangerous）
-│   │   ├── rules.ts            权限规则解析（.claude/settings.json）
-│   │   ├── modes.ts            权限模式管理（default/plan/yolo/auto）
-│   │   └── path-validator.ts   路径验证（防止路径遍历）
-│   │
-│   ├── memory/              ← 记忆系统
-│   │   ├── manager.ts          记忆文件管理（PI.md / PI.local.md）
-│   │   └── extractor.ts        自动记忆提取（从对话中提取事实）
-│   │
-│   ├── hooks/               ← Hooks 系统
-│   │   ├── config.ts           Hook 配置解析（.claude/hooks.json → Pi 事件）
-│   │   └── runner.ts           Hook 执行器
-│   │
-│   ├── tools/               ← 工具实现
-│   │   ├── web-fetch.ts        WebFetch 工具
-│   │   ├── web-search.ts       WebSearch 工具
-│   │   ├── lsp.ts              LSP 工具
-│   │   ├── lsp-client.ts       LSP JSON-RPC 客户端
-│   │   ├── lsp-server-manager.ts LSP 服务器生命周期管理
-│   │   ├── todo.ts             TodoWrite 工具
-│   │   ├── plan-mode.ts        Plan Mode 工具（enter/exit_plan_mode）
-│   │   ├── ask-user.ts         AskUser 工具
-│   │   ├── notebook-edit.ts    NotebookEdit 工具
-│   │   └── worktree.ts         Git Worktree 工具
-│   │
-│   ├── agents/              ← 多 Agent 协作
-│   │   ├── agent-tool.ts       Agent 工具（spawn 子进程）
-│   │   ├── process-manager.ts  Agent 进程管理
-│   │   ├── color-manager.ts    Agent 颜色区分
-│   │   ├── task-tools.ts       Task CRUD 工具
-│   │   ├── team-tools.ts       Team 工具
-│   │   ├── send-message.ts     Agent 间消息传递
-│   │   └── coordinator.ts      Coordinator 模式
-│   │
-│   ├── mcp/                 ← MCP 客户端
-│   │   ├── manager.ts           MCP 连接管理器
-│   │   ├── config.ts            MCP 配置解析（兼容 .claude/mcp.json）
-│   │   └── auth.ts              MCP 认证
-│   │
-│   ├── utils/               ← 通用工具
-│   │   └── truncate.ts          输出截断
-│   │
-│   └── types/               ← 共享类型
-│       └── index.ts             PermissionMode, SharedState, etc.
+│   ├── state.ts             ← ★ 扩展间共享状态（Module Singleton Pattern）
+│   ├── types.ts             ← 共享类型（PermissionMode, SafetyLevel 等）
+│   ├── tools/
+│   │   └── ask-user.ts         AskUserQuestion 工具 ✅
+│   ├── permissions/         ← （待实现）
+│   ├── memory/              ← （待实现）
+│   ├── hooks/               ← （待实现）
+│   ├── agents/              ← （待实现）
+│   ├── mcp/                 ← （待实现）
+│   └── utils/               ← （待实现）
 │
-├── prompts/                 ← Pi 提示模板
-│   └── claude-code-system.md   Claude Code 兼容系统提示
-│
-├── config/                  ← 默认配置文件
-├── tests/                   ← 测试
-├── docs/                    ← 文档
-│
-├── package.json             ← Pi Package manifest（pi 字段是发现机制的关键）
-├── tsconfig.json
-└── README.md
+├── skills/remember/         ← /remember 技能
+├── package.json             ← Pi Package manifest
+└── tsconfig.json
 ```
 
 ---
 
-## 4 个扩展的职责和协作
+## 扩展间通信：共享模块状态
 
-### 扩展加载顺序（重要！）
-
-Pi 按 `settings.json` 中的配置顺序加载扩展。**core 必须第一个加载。**
+4 个扩展运行在同一个 Node.js 进程中，通过 **Module Singleton Pattern** 共享状态：
 
 ```
-core.ts → tools.ts → agents.ts → mcp.ts
+┌──────────────────────────────────────────────────────┐
+│                  src/state.ts                        │
+│          （Node.js 模块缓存 → 同一对象实例）           │
+│                                                      │
+│  state.permission  ← core 写入，tools/agents 读取    │
+│  state.memory      ← core 写入，tools/agents 读取    │
+│  state.agent       ← agents 写入，core 读取          │
+└──────────────────────────────────────────────────────┘
+         ▲ import        ▲ import        ▲ import
+         │               │               │
+    core.ts          tools.ts        agents.ts
 ```
 
-### 扩展间通信
+### 为什么不用 EventBus？
 
-```
-┌─────────────┐     EventBus 查询      ┌─────────────┐
-│  pi-cc-core │ ◄────────────────────── │ pi-cc-tools │
-│  (状态中枢)  │                        │ pi-cc-agents│
-│             │ ────── 权限拦截 ───────► │ pi-cc-mcp   │
-└─────────────┘    (tool_call 事件)      └─────────────┘
-```
+| 方案 | 一致性 | 速度 | 依赖加载顺序 | 独立安装 |
+|------|--------|------|-------------|---------|
+| ~~EventBus~~ | ❌ 异步 | ❌ 微任务延迟 | ❌ core 必须先加载 | ❌ 拆了就失效 |
+| 合并为单扩展 | ✅ 同步 | ✅ 即时 | ✅ 无依赖 | ❌ 不可拆分 |
+| **共享模块状态** | ✅ 同步 | ✅ 即时 | ✅ 无依赖 | ✅ 默认值安全降级 |
+
+### 优雅降级
+
+- 只装 `tools.ts`？→ `state.permission.mode` 默认 `"default"`，工具正常运行
+- 只装 `agents.ts`？→ 同上，子 Agent 不受 Plan 模式限制但功能完整
+- 装了 `core.ts`？→ 完整权限拦截 + Plan 模式 + 记忆注入
+
+---
+
+## 4 个扩展的职责
+
+### 无加载顺序依赖
+
+4 个扩展可以按任意顺序加载，也可以单独安装。
+
+- **core.ts** 是唯一写入共享状态的扩展（权限模式、记忆内容等）
+- **tools.ts / agents.ts / mcp.ts** 只读取共享状态
+- 如果 core.ts 没装，共享状态保持默认值，其他扩展仍然正常工作
+
+### 扩展间通信方式
 
 | 通信机制 | 用途 | 示例 |
 |---------|------|------|
+| **src/state.ts** | 跨扩展同步状态共享 | core 写 `state.permission.mode = "plan"`，tools 立刻读到 |
 | **tool_call 事件** | 权限拦截 | core 拦截所有扩展的工具调用 |
-| **before_agent_start** | System Prompt 修改 | core 注入权限模式，agents 注入 Coordinator 提示 |
-| **EventBus** | 跨扩展状态查询 | agents 查询 core 的权限模式 |
-| **--append-system-prompt** | 子进程状态传递 | agents spawn 子 Agent 时注入权限/记忆上下文 |
-| **CustomEntry** | 持久化共享状态 | core 写入权限模式到 session entries |
+| **before_agent_start** | System Prompt 修改 | core 注入权限模式 + 记忆内容 |
+| **--append-system-prompt** | 子进程状态传递 | agents spawn 子 Agent 时注入 `state.permission.mode` |
 
 ---
 
@@ -112,7 +95,7 @@ core.ts → tools.ts → agents.ts → mcp.ts
 ### 方式 1：从 GitHub 安装（推荐）
 
 ```bash
-pi install git:github.com/Alfredo/pi-claude-code
+pi install git:github.com/StarryAlfredo/pi-claude-code
 ```
 
 ### 方式 2：本地开发路径
@@ -121,7 +104,7 @@ pi install git:github.com/Alfredo/pi-claude-code
 
 ```json
 {
-  "packages": ["D:/dev/pi-claude-code"]
+  "packages": ["G:/pi-claude-code"]
 }
 ```
 
@@ -130,7 +113,7 @@ pi install git:github.com/Alfredo/pi-claude-code
 ### 方式 3：临时测试
 
 ```bash
-pi -e D:/dev/pi-claude-code
+pi -e G:/pi-claude-code
 ```
 
 ### 方式 4：选择性安装
@@ -140,8 +123,19 @@ pi -e D:/dev/pi-claude-code
 ```json
 {
   "packages": [{
-    "source": "git:github.com/Alfredo/pi-claude-code",
+    "source": "git:github.com/StarryAlfredo/pi-claude-code",
     "extensions": ["extensions/core.ts", "extensions/tools.ts"]
+  }]
+}
+```
+
+只要 agents 不需要？只装 agents：
+
+```json
+{
+  "packages": [{
+    "source": "git:github.com/StarryAlfredo/pi-claude-code",
+    "extensions": ["extensions/agents.ts"]
   }]
 }
 ```
@@ -150,30 +144,29 @@ pi -e D:/dev/pi-claude-code
 
 ## 功能对照表
 
-### Claude Code → Pi 扩展映射
-
 | Claude Code 能力 | Pi 扩展 | 状态 |
 |-----------------|---------|------|
-| **权限系统** (default/plan/yolo/auto) | pi-cc-core | 🔲 待实现 |
-| **记忆系统** (CLAUDE.md) | pi-cc-core | 🔲 待实现 |
-| **Hooks 系统** | pi-cc-core | 🔲 待实现 |
-| **/permissions, /memory, /hooks, /doctor, /cost** | pi-cc-core | 🔲 待实现 |
-| **WebFetch** | pi-cc-tools | 🔲 待实现 |
-| **WebSearch** | pi-cc-tools | 🔲 待实现 |
-| **LSP 集成** | pi-cc-tools | 🔲 待实现 |
-| **TodoWrite** | pi-cc-tools | 🔲 待实现 |
-| **Plan Mode** (enter/exit_plan_mode) | pi-cc-tools | 🔲 待实现 |
-| **AskUser** | pi-cc-tools | 🔲 待实现 |
-| **NotebookEdit** | pi-cc-tools | 🔲 待实现 |
-| **Git Worktree** | pi-cc-tools | 🔲 待实现 |
-| **AgentTool** (子 Agent 调度) | pi-cc-agents | 🔲 待实现 |
-| **Task 管理** (create/get/list/output/stop/update) | pi-cc-agents | 🔲 待实现 |
-| **Team 协作** (create/delete/send_message) | pi-cc-agents | 🔲 待实现 |
-| **Coordinator Mode** | pi-cc-agents | 🔲 待实现 |
-| **Batch 技能** | pi-cc-agents | 🔲 待实现 |
-| **MCP 客户端** | pi-cc-mcp | 🔲 待实现 |
-| **MCP 动态工具注册** | pi-cc-mcp | 🔲 待实现 |
-| **MCP 认证** | pi-cc-mcp | 🔲 待实现 |
+| **权限系统** (default/plan/yolo/auto) | core | 🟡 部分实现 |
+| **记忆系统** (PI.md) | core | 🟡 部分实现 |
+| **Hooks 系统** | core | 🔲 待实现 |
+| **/permissions, /memory** | core | 🟡 已实现 |
+| **/hooks, /doctor, /cost** | core | 🔲 待实现 |
+| **Plan Mode** (Ctrl+Alt+P + /permissions) | core | 🟡 部分实现 |
+| **AskUser** | tools | ✅ 已实现 |
+| **WebFetch** | tools | 🔲 待实现 |
+| **WebSearch** | tools | 🔲 待实现 |
+| **LSP 集成** | tools | 🔲 待实现 |
+| **TodoWrite** | tools | 🔲 待实现 |
+| **NotebookEdit** | tools | 🔲 待实现 |
+| **Git Worktree** | tools | 🔲 待实现 |
+| **AgentTool** (子 Agent 调度) | agents | 🔲 待实现 |
+| **Task 管理** (create/get/list/output/stop/update) | agents | 🔲 待实现 |
+| **Team 协作** (create/delete/send_message) | agents | 🔲 待实现 |
+| **Coordinator Mode** | agents | 🔲 待实现 |
+| **Batch 技能** | agents | 🔲 待实现 |
+| **MCP 客户端** | mcp | 🔲 待实现 |
+| **MCP 动态工具注册** | mcp | 🔲 待实现 |
+| **MCP 认证** | mcp | 🔲 待实现 |
 
 ### Pi 已有内置能力（不需要扩展实现）
 
@@ -188,19 +181,37 @@ pi -e D:/dev/pi-claude-code
 | System Prompt | before_agent_start 事件 |
 | 扩展系统 | pi.registerTool() / pi.on() / pi.registerCommand() |
 | 主题 | themes 系统 |
-| 技能 | skills 系统 (SKILL.md) — 待实现 |
-| Prompt 模板 | prompts 系统 |
+| 技能 | skills 系统 (SKILL.md) |
+| Prompt 模板 | prompts 系统 + promptSnippet/promptGuidelines 自动注入 |
+| 权限拦截 | tool_call 事件 (block + input mutation) |
+| 工具动态切换 | pi.setActiveTools() |
+| OS 级 Sandbox | @anthropic-ai/sandbox-runtime (Pi sandbox 示例) |
+
+---
+
+## 已实现功能详情
+
+### 权限系统（core.ts）
+
+- **4 种模式**：default（危险命令需确认）、plan（只读）、yolo（全放行）、auto（LLM 自行决定）
+- **Bash 命令分类**：dangerous（rm -rf, sudo 等）/ write（mkdir, git commit 等）/ read
+- **Plan 模式**：`/permissions` 或 Ctrl+Alt+P 切换，自动限制为只读工具集
+- **CLI 标志**：`--yolo` / `--plan`
+- **受保护路径**：edit/write 操作的路径拦截
+
+### AskUserQuestion（tools/ask-user.ts）
+
+- Schema 与 Claude Code 完全一致
+- 单选：ctx.ui.select() + "Other" → ctx.ui.input()
+- 多选：逐项 confirm + 自定义输入
+- 非 UI 模式降级（默认选第一个选项）
+- AbortSignal 支持
+- 自定义 TUI 渲染 (renderCall/renderResult)
+- promptSnippet + promptGuidelines 自动注入系统提示
 
 ---
 
 ## 开发指南
-
-### 环境准备
-
-```bash
-cd D:/dev/pi-claude-code
-npm install   # 安装依赖（后续添加）
-```
 
 ### 开发流程
 
@@ -216,14 +227,16 @@ npm install   # 安装依赖（后续添加）
 | subagent | AgentTool | `pi examples/extensions/subagent/` |
 | plan-mode | Plan Mode | `pi examples/extensions/plan-mode/` |
 | permission-gate | 权限拦截 | `pi examples/extensions/permission-gate.ts` |
+| protected-paths | 路径保护 | `pi examples/extensions/protected-paths.ts` |
 | sandbox | 沙箱模式 | `pi examples/extensions/sandbox/` |
 | todo | TodoWrite | `pi examples/extensions/todo.ts` |
 | claude-rules | 记忆系统 | `pi examples/extensions/claude-rules.ts` |
+| custom-compaction | 自定义压缩 | `pi examples/extensions/custom-compaction.ts` |
 
 ### 实现优先级
 
-1. **Phase 1** — `core.ts`: 权限系统 + 记忆系统（其他扩展都依赖它）
-2. **Phase 2** — `tools.ts`: Web 工具 + Todo + Plan Mode + AskUser
+1. **Phase 1** — `core.ts`: 权限系统完善 + 记忆系统 + Hooks
+2. **Phase 2** — `tools.ts`: Web 工具 + Todo + Plan Mode 完善
 3. **Phase 3** — `agents.ts`: AgentTool + Task + Coordinator（最复杂）
 4. **Phase 4** — `mcp.ts`: MCP 客户端
 
