@@ -1,77 +1,22 @@
 /**
  * AskUserQuestion Tool — Claude Code 兼容实现
  *
- * ┌─────────────────────────────────────────────────────────────────┐
- * │  Claude Code → Pi 架构映射                                     │
- * ├─────────────────────────────────────────────────────────────────┤
- * │  Claude Code              │  Pi                                │
- * │  交互在权限确认层          │  交互在 execute() 中               │
- * │  (checkPermissions→对话框) │  (ctx.ui.select/confirm/input)     │
- * │  React Ink 多题导航 UI    │  逐题弹出 select                  │
- * │  SelectMulti 组件一次多选  │  逐项 confirm + 汇总               │
- * │  PreviewBox 侧边栏预览    │  ⚠ 不支持 (Pi select 无预览面板)   │
- * │  图片粘贴 (base64 附件)    │  ⚠ 不支持 (Pi input 无图片)       │
- * │  "Chat about this" 底栏   │  ⚠ 未实现                         │
- * └─────────────────────────────────────────────────────────────────┘
+ * 与 Claude Code 的架构映射:
  *
- * ┌─────────────────────────────────────────────────────────────────┐
- * │  实现状态                                                       │
- * ├─────────────────────────────────────────────────────────────────┤
- * │  ✅ 已实现                                                      │
- * │    • Schema 与 Claude Code 完全一致 (questions/options/header)  │
- * │    • 输出格式一致 (answers + annotations)                       │
- * │    • 返回文本一致 ("User has answered your questions: ...")     │
- * │    • 单选模式: ctx.ui.select() + "Other" → ctx.ui.input()      │
- * │    • 多选模式: 逐项 ctx.ui.confirm() + 自定义输入               │
- * │    • 多题顺序提问 (1-4 题)                                      │
- * │    • 非 UI 模式降级 (默认选第一个选项)                          │
- * │    • AbortSignal 支持 (用户取消)                                │
- * │    • 自定义 TUI 渲染 (renderCall/renderResult)                  │
- * │    • promptSnippet + promptGuidelines 注入系统提示              │
- * │                                                                 │
- * │  ⚠ 未实现 (Pi TUI 限制)                                        │
- * │    • Preview 侧边栏 — Pi select 无预览面板                     │
- * │      → 可用 ctx.ui.custom() 自定义组件实现 (未来)               │
- * │    • 多题 Tab 导航 — Pi select 是单次调用                       │
- * │      → 逐题弹出，体验略差但可用                                 │
- * │    • 图片粘贴 — Pi input 不支持图片附件                         │
- * │      → 需 Pi 核心支持 input 图片能力                            │
- * │    • "Chat about this" 底栏操作                                 │
- * │      → 需结合 Plan Mode 扩展实现                                │
- * │    • Plan Mode interview 集成                                  │
- * │      → 依赖 pi-cc-core 的 Plan Mode 状态                       │
- * └─────────────────────────────────────────────────────────────────┘
- *
- * ┌─────────────────────────────────────────────────────────────────┐
- * │  单选流程 (最常见)                                              │
- * ├─────────────────────────────────────────────────────────────────┤
- * │  LLM → AskUserQuestion({ questions: [{ ... }] })               │
- * │    ↓                                                            │
- * │  ctx.ui.select("Q?", ["Opt1 — desc", "Opt2 — desc", "Other"]) │
- * │    ↓                                                            │
- * │  用户选 "Other" → ctx.ui.input("Enter your answer:")           │
- * │  用户选 "Opt1 — desc" → 提取 label: "Opt1"                    │
- * │    ↓                                                            │
- * │  返回 { answers: { "Q?": "Opt1" } }                            │
- * └─────────────────────────────────────────────────────────────────┘
- *
- * ┌─────────────────────────────────────────────────────────────────┐
- * │  多选流程                                                       │
- * ├─────────────────────────────────────────────────────────────────┤
- * │  LLM → AskUserQuestion({ questions: [{ multiSelect: true }] }) │
- * │    ↓                                                            │
- * │  对每个 option: ctx.ui.confirm("Enable this?")                  │
- * │    ↓                                                            │
- * │  ctx.ui.confirm("Add custom?") → ctx.ui.input()                │
- * │    ↓                                                            │
- * │  返回 { answers: { "Q?": "Auth, Logging, Custom" } }           │
- * └─────────────────────────────────────────────────────────────────┘
- *
- * GitHub Issue: https://github.com/StarryAlfredo/pi-claude-code/issues/1
+ *   Claude Code                │  Pi
+ *   ──────────────────────────│──────────────────────────────
+ *   交互在权限确认层           │  交互在 execute() 中
+ *   (checkPermissions→对话框)  │  (ctx.ui.select/confirm/input)
+ *   React Ink 多题导航 UI     │  逐题弹出 select
+ *   SelectMulti 组件一次多选   │  逐项 confirm + 汇总
+ *   PreviewBox 侧边栏预览     │  ⚠ 不支持 (Pi select 无预览面板)
+ *   图片粘贴 (base64 附件)     │  ⚠ 不支持 (Pi input 无图片)
+ *   "Chat about this" 底栏    │  ⚠ 未实现
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@mariozechner/pi-coding-agent"
 import { Type } from "@sinclair/typebox"
+import { Text } from "@mariozechner/pi-tui"
 
 // ─── Schema 定义 ───────────────────────────────────────────────
 
@@ -101,7 +46,11 @@ const QuestionSchema = Type.Object({
 		description:
 			'Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".',
 	}),
-	options: Type.Array(QuestionOptionSchema, { minItems: 2, maxItems: 4, description: "The available choices for this question. Must have 2-4 options. There should be no 'Other' option, that will be provided automatically." }),
+	options: Type.Array(QuestionOptionSchema, {
+		minItems: 2,
+		maxItems: 4,
+		description: "The available choices for this question. Must have 2-4 options. There should be no 'Other' option, that will be provided automatically.",
+	}),
 	multiSelect: Type.Boolean({
 		default: false,
 		description:
@@ -110,7 +59,11 @@ const QuestionSchema = Type.Object({
 })
 
 const AskUserParams = Type.Object({
-	questions: Type.Array(QuestionSchema, { minItems: 1, maxItems: 4, description: "Questions to ask the user (1-4 questions)" }),
+	questions: Type.Array(QuestionSchema, {
+		minItems: 1,
+		maxItems: 4,
+		description: "Questions to ask the user (1-4 questions)",
+	}),
 })
 
 // ─── 输出类型 ───────────────────────────────────────────────────
@@ -123,13 +76,7 @@ interface AskUserDetails {
 		multiSelect: boolean
 	}>
 	answers: Record<string, string>
-	annotations?: Record<
-		string,
-		{
-			notes?: string
-			preview?: string
-		}
-	>
+	annotations?: Record<string, { notes?: string; preview?: string }>
 }
 
 // ─── 工具实现 ───────────────────────────────────────────────────
@@ -154,7 +101,6 @@ export function registerAskUser(pi: ExtensionAPI): void {
 			"Do NOT use AskUserQuestion to ask 'Is my plan ready?' or 'Should I proceed?' - just proceed.",
 		],
 		parameters: AskUserParams,
-		// 必须顺序执行——同一时间只能有一个问题对话框
 		executionMode: "sequential",
 
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -162,7 +108,7 @@ export function registerAskUser(pi: ExtensionAPI): void {
 			const answers: Record<string, string> = {}
 			const annotations: Record<string, { notes?: string; preview?: string }> = {}
 
-			// 无 UI 时（print/rpc 模式）返回默认提示
+			// 无 UI 时返回默认提示
 			if (!ctx.hasUI) {
 				for (const q of questions) {
 					answers[q.question] = q.options[0]?.label ?? "No preference"
@@ -184,22 +130,9 @@ export function registerAskUser(pi: ExtensionAPI): void {
 			for (let i = 0; i < questions.length; i++) {
 				const q = questions[i]
 
-				// 检查是否已被中止
 				if (signal?.aborted) {
-					return {
-						content: [{ type: "text" as const, text: "Question cancelled by user." }],
-						details: { questions, answers } as AskUserDetails,
-						isError: true,
-					}
+					throw new Error("Question cancelled by user.")
 				}
-
-				// 构建选项列表：原始选项 + "Other"
-				const optionLabels = q.options.map((opt) => opt.label)
-				const optionDescriptions: Record<string, string> = {}
-				for (const opt of q.options) {
-					optionDescriptions[opt.label] = opt.description
-				}
-				optionLabels.push("Other")
 
 				// 更新进度
 				const progressPrefix = questions.length > 1 ? `[${i + 1}/${questions.length}] ` : ""
@@ -213,11 +146,9 @@ export function registerAskUser(pi: ExtensionAPI): void {
 					details: { questions, answers } as AskUserDetails,
 				})
 
-				let answer: string | undefined
-
 				if (q.multiSelect) {
 					// ── 多选模式 ──
-					// Pi 的 select 是单选的，所以多选用 confirm 逐个确认
+					// 逐项 confirm
 					const selectedLabels: string[] = []
 
 					for (const opt of q.options) {
@@ -242,10 +173,11 @@ export function registerAskUser(pi: ExtensionAPI): void {
 						}
 					}
 
-					answer = selectedLabels.length > 0 ? selectedLabels.join(", ") : "No selection"
+					answers[q.question] = selectedLabels.length > 0 ? selectedLabels.join(", ") : "No selection"
 				} else {
 					// ── 单选模式 ──
-					// 构建带描述的选项显示
+					// 用 index 映射，不用 split 解析
+					const OTHER_INDEX = q.options.length // "Other" 的 index
 					const displayOptions = q.options.map(
 						(opt) => `${opt.label} — ${opt.description}`,
 					)
@@ -257,41 +189,30 @@ export function registerAskUser(pi: ExtensionAPI): void {
 					)
 
 					if (choice === undefined) {
-						// 用户取消
-						return {
-							content: [
-								{
-									type: "text" as const,
-									text: "User declined to answer questions.",
-								},
-							],
-							details: { questions, answers } as AskUserDetails,
-							isError: true,
-						}
+						throw new Error("User declined to answer questions.")
 					}
 
-					if (choice === "Other (type your own answer)") {
+					const choiceIndex = displayOptions.indexOf(choice)
+
+					if (choiceIndex === OTHER_INDEX) {
+						// 用户选了 "Other"
 						const customText = await ctx.ui.input("Enter your answer:", "")
-						// 用户按 Escape 取消 input 或输入为空 → 视为取消整次提问
 						if (customText === undefined || customText.trim() === "") {
-							return {
-								content: [{ type: "text" as const, text: "User declined to answer questions." }],
-								details: { questions, answers } as AskUserDetails,
-								isError: true,
-							}
+							throw new Error("User declined to answer questions.")
 						}
-						answer = customText.trim()
+						answers[q.question] = customText.trim()
 						annotations[q.question] = { notes: customText.trim() }
+					} else if (choiceIndex >= 0 && choiceIndex < q.options.length) {
+						// 用 index 映射回 label，而不是 split(" — ")
+						answers[q.question] = q.options[choiceIndex].label
 					} else {
-						// 从 "label — description" 格式中提取 label
-						answer = choice.split(" — ")[0] || choice
+						// 兜底：万一 indexOf 没匹配到
+						answers[q.question] = q.options[0]?.label ?? "Unknown"
 					}
 				}
-
-				answers[q.question] = answer
 			}
 
-			// 格式化返回文本（与 Claude Code 的 mapToolResultToToolResultBlockParam 保持一致）
+			// 格式化返回文本（与 Claude Code 保持一致）
 			const answersText = Object.entries(answers)
 				.map(([questionText, answer]) => `"${questionText}"="${answer}"`)
 				.join(", ")
@@ -316,9 +237,6 @@ export function registerAskUser(pi: ExtensionAPI): void {
 		// ─── 自定义渲染 ─────────────────────────────────────────
 
 		renderCall(args, theme) {
-			// 动态 import 避免顶层 require
-			const { Text } = require("@mariozechner/pi-tui")
-
 			const count = args.questions?.length ?? 0
 			if (count === 0) return new Text("Asking questions...", 0, 0)
 
@@ -333,12 +251,10 @@ export function registerAskUser(pi: ExtensionAPI): void {
 				text += theme.fg("muted", ` (${count} questions)`)
 			}
 
-			// 显示第一个问题预览
 			const preview = firstQ?.question ?? ""
 			const truncated = preview.length > 60 ? preview.slice(0, 60) + "..." : preview
 			text += "\n  " + theme.fg("dim", truncated)
 
-			// 显示选项
 			const options = firstQ?.options ?? []
 			for (const opt of options.slice(0, 3)) {
 				text += "\n  " + theme.fg("muted", "• ") + theme.fg("text", opt.label)
@@ -352,8 +268,6 @@ export function registerAskUser(pi: ExtensionAPI): void {
 		},
 
 		renderResult(result, { expanded }, theme) {
-			const { Text } = require("@mariozechner/pi-tui")
-
 			const details = result.details as AskUserDetails | undefined
 			if (!details || Object.keys(details.answers).length === 0) {
 				const text = result.content[0]

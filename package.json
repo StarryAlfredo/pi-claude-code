@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "Claude Code compatibility layer for Pi — brings Claude Code's tools, multi-agent collaboration, permission system, memory, MCP, and more to Pi via extensions",
   "keywords": ["pi-package"],
-  "main": "extensions/core.ts",
   "pi": {
     "extensions": [
       "./extensions/core.ts",
@@ -11,7 +10,8 @@
       "./extensions/agents.ts",
       "./extensions/mcp.ts"
     ],
-    "prompts": ["./prompts"]
+    "skills": ["./skills/remember"],
+    "prompts": []
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
